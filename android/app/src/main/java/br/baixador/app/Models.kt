@@ -30,4 +30,5 @@ class DownloadItem(val id: String, val url: String) {
     var fileUri by mutableStateOf<String?>(null)
     var mime by mutableStateOf<String?>(null)
     var date by mutableStateOf(0L)
+    var active by mutableStateOf(false)   // true enquanto baixa (mantém o serviço em segundo plano)
 }

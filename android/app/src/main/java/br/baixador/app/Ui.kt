@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -116,18 +118,19 @@ private val R12 = RoundedCornerShape(12.dp)
 
 // ---------- tela principal ----------
 @Composable
-fun Root(vm: MainViewModel) {
+fun Root() {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val focus = LocalFocusManager.current
     var tab by remember { mutableIntStateOf(0) }
     var url by remember { mutableStateOf("") }
     val ready by EngineState.ready.collectAsStateWithLifecycle()
     val error by EngineState.error.collectAsStateWithLifecycle()
 
-    LaunchedEffect(vm.message) {
-        vm.message?.let {
+    LaunchedEffect(Downloads.message) {
+        Downloads.message?.let {
             Toast.makeText(ctx, it, Toast.LENGTH_LONG).show()
-            vm.message = null
+            Downloads.message = null
         }
     }
 
@@ -138,7 +141,7 @@ fun Root(vm: MainViewModel) {
             .systemBarsPadding()
             .padding(horizontal = 16.dp),
     ) {
-        Header(ready, error, vm.engineVersion) { vm.updateEngine() }
+        Header(ready, error, Downloads.engineVersion) { Downloads.updateEngine() }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             TabLabel("Baixando", tab == 0) { tab = 0 }
@@ -152,14 +155,16 @@ fun Root(vm: MainViewModel) {
                 val t = clipboard.getText()?.text.orEmpty().trim()
                 if (t.isNotEmpty()) {
                     url = t
-                    vm.add(t)
+                    Downloads.add(t)
+                    focus.clearFocus()
                     url = ""
                     tab = 0
                 }
             },
             onGo = {
                 if (url.isNotBlank()) {
-                    vm.add(url)
+                    Downloads.add(url)
+                    focus.clearFocus()
                     url = ""
                     tab = 0
                 }
@@ -167,7 +172,7 @@ fun Root(vm: MainViewModel) {
         )
         Spacer(Modifier.height(12.dp))
 
-        val shown = vm.items.filter { it.done == (tab == 1) }
+        val shown = Downloads.items.filter { it.done == (tab == 1) }
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
@@ -177,13 +182,13 @@ fun Root(vm: MainViewModel) {
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                items(shown, key = { it.id }) { ItemCard(it, vm) }
+                items(shown, key = { it.id }) { ItemCard(it) }
             }
         }
     }
 
-    vm.choice?.let { c ->
-        FormatDialog(c, onConfirm = { vm.choose(it) }, onDismiss = { vm.dismissChoice() })
+    Downloads.choice?.let { c ->
+        FormatDialog(c, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
     }
 }
 
@@ -250,7 +255,7 @@ private fun UrlBar(value: String, onChange: (String) -> Unit, onPaste: () -> Uni
 }
 
 @Composable
-private fun ItemCard(item: DownloadItem, vm: MainViewModel) {
+private fun ItemCard(item: DownloadItem) {
     val ctx = LocalContext.current
     Column(
         Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(R10).border(1.dp, Line, R10).padding(12.dp),
@@ -281,14 +286,17 @@ private fun ItemCard(item: DownloadItem, vm: MainViewModel) {
             if (item.percent <= 0f) {
                 LinearProgressIndicator(modifier = bar, color = Acc, trackColor = Track)
             } else {
-                LinearProgressIndicator(progress = { item.percent }, modifier = bar, color = Acc, trackColor = Track)
+                // barra própria: a do Material 3 desenha uma folga e um pontinho no fim
+                Box(bar.background(Track)) {
+                    Box(Modifier.fillMaxWidth(item.percent.coerceIn(0f, 1f)).fillMaxHeight().background(Acc))
+                }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (item.done && item.fileUri != null) {
                 TextButton(onClick = { openFile(ctx, item) }) { Text("Abrir", color = Acc) }
             }
-            TextButton(onClick = { vm.remove(item) }) {
+            TextButton(onClick = { Downloads.remove(item) }) {
                 Text(if (item.done || item.failed) "Remover" else "Cancelar", color = Mute)
             }
         }
@@ -309,7 +317,7 @@ private fun openFile(ctx: Context, item: DownloadItem) {
 
 // ---------- janela "Selecionar qualidade e formato" ----------
 @Composable
-private fun FormatDialog(choice: MainViewModel.Choice, onConfirm: (Selection) -> Unit, onDismiss: () -> Unit) {
+private fun FormatDialog(choice: Downloads.Choice, onConfirm: (Selection) -> Unit, onDismiss: () -> Unit) {
     val info = choice.info
     var isVideo by remember { mutableStateOf(true) }
     var audioFmt by remember { mutableStateOf("MP3") }

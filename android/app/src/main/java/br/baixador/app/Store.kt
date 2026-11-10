@@ -26,7 +26,7 @@ object Store {
                     percent = 1f
                     done = true
                     status = "Concluído"
-                    detail = MainViewModel.dateText(date)
+                    detail = Downloads.dateText(date)
                 }
             }
         } catch (e: Exception) {

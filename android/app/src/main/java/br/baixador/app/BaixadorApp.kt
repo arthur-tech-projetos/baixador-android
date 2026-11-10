@@ -15,6 +15,7 @@ class BaixadorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         val ctx = applicationContext
+        Downloads.init(this)
         // a primeira inicialização extrai o Python e o FFmpeg; leva alguns segundos
         Thread {
             try {
