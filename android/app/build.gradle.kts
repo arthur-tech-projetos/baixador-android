@@ -12,10 +12,23 @@ android {
         applicationId = "br.baixador.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         // o yt-dlp e o FFmpeg embutidos trazem bibliotecas nativas por arquitetura
         ndk { abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a")) }
+    }
+
+    // Chave de assinatura FIXA para os APKs de teste. Sem isto, cada compilação no GitHub gera uma
+    // chave nova e o Android recusa instalar por cima ("conflito com um pacote já existente").
+    // (A senha é a padrão "android" de propósito: é só para builds de teste. Para publicar o app
+    //  para outras pessoas, use uma chave PRIVADA guardada nos Secrets do GitHub.)
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
