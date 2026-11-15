@@ -94,6 +94,12 @@ object Engine {
             req.addOption("-x")
             req.addOption("--audio-format", sel.format.lowercase(Locale.ROOT))
             if (sel.format == "MP3") req.addOption("--audio-quality", "${sel.kbps}K")
+            req.addOption("--embed-metadata")
+            if (sel.format == "MP3") {
+                req.addOption("--embed-thumbnail")
+                req.addOption("--convert-thumbnails", "jpg")
+                req.addOption("--ppa", "ThumbnailsConvertor+FFmpeg_o:-c:v mjpeg -vf crop=\"'if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'\"")
+            }
         } else {
             val v = sel.video
             val fmt = when {
