@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -82,7 +83,36 @@ object Engine {
         tmp.deleteRecursively()
         tmp.mkdirs()
 
-        val req = YoutubeDLRequest(item.url)
+        // áudio: busca álbum/capa/gênero no iTunes e baixa a partir do JSON completado.
+        // Com --load-info-json o yt-dlp não renova o link se o YouTube der 403, então:
+        // tentativas 1 e 2 com JSON novo; 3ª direto pelo link (sem iTunes).
+        var tentativa = 0
+        while (true) {
+            val infoJson: File? = if (!sel.isVideo && tentativa < 2) prepareInfoJson(item.url, tmp) else null
+            try {
+                YoutubeDL.execute(buildRequest(item, sel, tmp, infoJson), item.id, { progress, eta, _ -> onProgress(progress, eta) })
+                infoJson?.delete()
+                break
+            } catch (e: YoutubeDLException) {
+                infoJson?.delete()
+                if (infoJson == null) throw e
+                tmp.listFiles()?.forEach { it.deleteRecursively() }
+                tentativa++
+            }
+        }
+
+        val out = tmp.listFiles()
+            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.endsWith(".json") }
+            ?.maxByOrNull { it.length() }
+            ?: throw IllegalStateException("Nenhum arquivo foi gerado.")
+        val saved = saveToDownloads(ctx, out)
+        tmp.deleteRecursively()
+        saved
+    }
+
+    private fun buildRequest(item: DownloadItem, sel: Selection, tmp: File, infoJson: File?): YoutubeDLRequest {
+        val req = if (infoJson != null) YoutubeDLRequest(emptyList<String>()).apply { addOption("--load-info-json", infoJson.absolutePath) }
+                  else YoutubeDLRequest(item.url)
         req.addOption("--no-playlist")
         req.addOption("--no-warnings")
         req.addOption("--newline")
@@ -115,16 +145,20 @@ object Engine {
             req.addOption("-S", "vcodec:h264,res,fps,acodec:m4a")
             req.addOption("--merge-output-format", "mp4")
         }
+        return req
+    }
 
-        YoutubeDL.execute(req, item.id, { progress, eta, _ -> onProgress(progress, eta) })
-
-        val out = tmp.listFiles()
-            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") }
-            ?.maxByOrNull { it.length() }
-            ?: throw IllegalStateException("Nenhum arquivo foi gerado.")
-        val saved = saveToDownloads(ctx, out)
-        tmp.deleteRecursively()
-        saved
+    /** Gera o .json do vídeo com as tags do iTunes; null se não deu (aí baixa direto pelo link). */
+    private fun prepareInfoJson(url: String, dir: File): File? = try {
+        val req = YoutubeDLRequest(url)
+        req.addOption("--no-playlist")
+        req.addOption("--no-warnings")
+        req.addOption("-j")
+        val raw = YoutubeDL.execute(req, null, null).out.trim()
+        if (!raw.startsWith("{")) null
+        else File(dir, "info.json").apply { writeText(MusicTags.enrich(raw), Charsets.UTF_8) }
+    } catch (_: Exception) {
+        null
     }
 
     private fun saveToDownloads(ctx: Context, file: File): Pair<String?, String> {
