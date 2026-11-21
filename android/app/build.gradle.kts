@@ -12,8 +12,8 @@ android {
         applicationId = "br.baixador.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.2.4"
+        versionCode = 7
+        versionName = "0.2.5"
         // o yt-dlp e o FFmpeg embutidos trazem bibliotecas nativas por arquitetura
         ndk { abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a")) }
     }

@@ -206,7 +206,9 @@ private fun Header(ready: Boolean, error: String?, version: String?, onUpdate: (
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text("Baixador", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Ink)
-            val s = when {
+            val ctx = LocalContext.current
+            val appVer = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() }
+            val s = (appVer?.let { "v$it · " } ?: "") + when {
                 error != null -> "Erro ao iniciar o motor"
                 !ready -> "Iniciando o motor..."
                 else -> "Pronto" + (version?.let { " · yt-dlp $it" } ?: "")
