@@ -190,6 +190,10 @@ fun Root() {
     Downloads.choice?.let { c ->
         FormatDialog(c, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
     }
+
+    // atualização do app (GitHub dev-latest)
+    LaunchedEffect(Unit) { AppUpdater.check(ctx) }
+    UpdateDialog()
 }
 
 @Composable

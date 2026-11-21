@@ -33,6 +33,15 @@ jobs:
       - name: Preparar o APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk Baixador-debug.apk
 
+      # Lido pelo app (AppUpdater.kt) para saber se há versão nova
+      - name: Gerar version.json
+        run: |
+          CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' android/app/build.gradle.kts)
+          NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' android/app/build.gradle.kts)
+          NOTES=$(git log -1 --pretty=%B | grep -v '^Co-Authored-By' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+          jq -n --argjson c "$CODE" --arg n "$NAME" --arg m "$NOTES" '{versionCode:$c, versionName:$n, notes:$m}' > version.json
+          cat version.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: Baixador-debug-apk
@@ -45,7 +54,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete dev-latest --yes --cleanup-tag || true
-          gh release create dev-latest Baixador-debug.apk \
+          gh release create dev-latest Baixador-debug.apk version.json \
             --prerelease \
             --target "${{ github.sha }}" \
             --title "Build de teste" \
