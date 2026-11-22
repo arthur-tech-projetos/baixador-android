@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object EngineState {
     val ready = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
+    val updating = MutableStateFlow(false)   // true enquanto o yt-dlp se atualiza (downloads esperam)
 }
 
 class BaixadorApp : Application() {
@@ -21,6 +22,8 @@ class BaixadorApp : Application() {
             try {
                 YoutubeDL.init(ctx)
                 FFmpeg.init(ctx)
+                // marca ANTES de ficar pronto, para nenhum download começar no meio da atualização
+                if (Downloads.updateDue()) EngineState.updating.value = true
                 EngineState.ready.value = true
             } catch (e: Throwable) {
                 EngineState.error.value = e.message ?: e.toString()

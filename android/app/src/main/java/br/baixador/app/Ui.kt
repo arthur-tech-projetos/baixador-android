@@ -33,6 +33,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +48,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -126,6 +129,7 @@ fun Root() {
     var url by remember { mutableStateOf("") }
     val ready by EngineState.ready.collectAsStateWithLifecycle()
     val error by EngineState.error.collectAsStateWithLifecycle()
+    val updating by EngineState.updating.collectAsStateWithLifecycle()
 
     LaunchedEffect(Downloads.message) {
         Downloads.message?.let {
@@ -141,7 +145,7 @@ fun Root() {
             .systemBarsPadding()
             .padding(horizontal = 16.dp),
     ) {
-        Header(ready, error, Downloads.engineVersion) { Downloads.updateEngine() }
+        Header(ready, updating, error, Downloads.engineVersion) { Downloads.updateEngine() }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             TabLabel("Baixando", tab == 0) { tab = 0 }
@@ -170,6 +174,14 @@ fun Root() {
                 }
             },
         )
+        FormatPrefs.last?.takeIf { FormatPrefs.auto }?.let { f ->
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Formato: ", fontSize = 13.sp, color = Mute)
+                Text(f.text, fontSize = 13.sp, color = Ink, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { FormatPrefs.askAgain() }) { Text("Perguntar de novo", fontSize = 13.sp, color = Acc) }
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         val shown = Downloads.items.filter { it.done == (tab == 1) }
@@ -188,7 +200,10 @@ fun Root() {
     }
 
     Downloads.choice?.let { c ->
-        FormatDialog(c, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
+        // key: cada link da fila abre a janela "zerada" (com a última escolha marcada)
+        key(c.item.id) {
+            FormatDialog(c, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
+        }
     }
 
     // atualização do app (GitHub dev-latest)
@@ -197,7 +212,7 @@ fun Root() {
 }
 
 @Composable
-private fun Header(ready: Boolean, error: String?, version: String?, onUpdate: () -> Unit) {
+private fun Header(ready: Boolean, updating: Boolean, error: String?, version: String?, onUpdate: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(36.dp).clip(R10).background(Acc),
@@ -211,12 +226,13 @@ private fun Header(ready: Boolean, error: String?, version: String?, onUpdate: (
             val s = (appVer?.let { "v$it · " } ?: "") + when {
                 error != null -> "Erro ao iniciar o motor"
                 !ready -> "Iniciando o motor..."
+                updating -> "Atualizando o yt-dlp..."
                 else -> "Pronto" + (version?.let { " · yt-dlp $it" } ?: "")
             }
             Text(s, fontSize = 11.sp, color = if (error != null) Danger else Mute)
         }
         OutlinedButton(
-            onClick = onUpdate, enabled = ready, shape = R8, border = BorderStroke(1.dp, Line),
+            onClick = onUpdate, enabled = ready && !updating, shape = R8, border = BorderStroke(1.dp, Line),
             contentPadding = PaddingValues(horizontal = 12.dp),
         ) { Text("Atualizar yt-dlp", color = Ink, fontSize = 12.sp) }
     }
@@ -283,7 +299,12 @@ private fun ItemCard(item: DownloadItem) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(item.status, color = if (item.failed) Danger else Acc, fontSize = 12.sp)
-                if (item.detail.isNotEmpty()) Text(item.detail, color = Mute, fontSize = 12.sp, maxLines = 1)
+                if (item.detail.isNotEmpty()) {
+                    Text(
+                        item.detail, color = Mute, fontSize = if (item.failed) 11.sp else 12.sp,
+                        maxLines = if (item.failed) 2 else 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
         if (!item.done && !item.failed) {
@@ -301,6 +322,9 @@ private fun ItemCard(item: DownloadItem) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (item.done && item.fileUri != null) {
                 TextButton(onClick = { openFile(ctx, item) }) { Text("Abrir", color = Acc) }
+            }
+            if (item.failed) {
+                TextButton(onClick = { Downloads.retry(item) }) { Text("Tentar de novo", color = Acc) }
             }
             TextButton(onClick = { Downloads.remove(item) }) {
                 Text(if (item.done || item.failed) "Remover" else "Cancelar", color = Mute)
@@ -325,10 +349,22 @@ private fun openFile(ctx: Context, item: DownloadItem) {
 @Composable
 private fun FormatDialog(choice: Downloads.Choice, onConfirm: (Selection) -> Unit, onDismiss: () -> Unit) {
     val info = choice.info
-    var isVideo by remember { mutableStateOf(true) }
-    var audioFmt by remember { mutableStateOf("MP3") }
-    var vIdx by remember { mutableIntStateOf(0) }
-    var kbps by remember { mutableIntStateOf(320) }
+    // abre já marcado com a última escolha
+    val last = FormatPrefs.last
+    var isVideo by remember { mutableStateOf(last?.isVideo ?: true) }
+    var audioFmt by remember { mutableStateOf(if (last != null && !last.isVideo) last.format else "MP3") }
+    var vIdx by remember {
+        mutableIntStateOf(
+            if (last == null || !last.isVideo) 0
+            else info.options.indexOfFirst { it.height == last.height && it.fps == last.fps }
+                .takeIf { it >= 0 }
+                ?: info.options.indexOfFirst { it.height == last.height }.takeIf { it >= 0 }
+                ?: info.options.indexOfFirst { o -> o.height != null && last.height != null && o.height <= last.height }.takeIf { it >= 0 }
+                ?: 0
+        )
+    }
+    var kbps by remember { mutableIntStateOf(if (last != null && !last.isVideo && last.format == "MP3") last.kbps else 320) }
+    var always by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
@@ -364,7 +400,18 @@ private fun FormatDialog(choice: Downloads.Choice, onConfirm: (Selection) -> Uni
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(R8).clickable { always = !always },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = always, onCheckedChange = { always = it },
+                        colors = CheckboxDefaults.colors(checkedColor = Acc, uncheckedColor = Mute),
+                    )
+                    Text("Usar sempre este formato", fontSize = 14.sp, color = Ink)
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     OutlinedButton(onClick = onDismiss, shape = R8, border = BorderStroke(1.dp, Line)) {
                         Text("Cancelar", color = Ink)
@@ -378,6 +425,7 @@ private fun FormatDialog(choice: Downloads.Choice, onConfirm: (Selection) -> Uni
                                     format = if (isVideo) "MP4" else audioFmt,
                                     video = if (isVideo) info.options.getOrNull(vIdx) else null,
                                     kbps = kbps,
+                                    remember = always,
                                 ),
                             )
                         },

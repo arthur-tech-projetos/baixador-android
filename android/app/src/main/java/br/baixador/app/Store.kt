@@ -5,7 +5,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** Guarda os downloads concluídos num arquivo JSON dentro do app. */
+/**
+ * Guarda a lista num arquivo JSON dentro do app: os concluídos e também os que falharam
+ * ou estavam baixando (se o Android fechar o app no meio, eles voltam como "Interrompido",
+ * com o botão "Tentar de novo").
+ */
 object Store {
     private fun file(ctx: Context) = File(ctx.filesDir, "historico.json")
 
@@ -23,10 +27,22 @@ object Store {
                     fileUri = if (o.isNull("fileUri")) null else o.optString("fileUri")
                     mime = if (o.isNull("mime")) null else o.optString("mime")
                     date = o.optLong("date")
-                    percent = 1f
-                    done = true
-                    status = "Concluído"
-                    detail = Downloads.dateText(date)
+                    selection = Selection.fromJson(o.optJSONObject("sel"))
+                    if (o.optBoolean("done", true)) {   // históricos antigos só tinham concluídos
+                        percent = 1f
+                        done = true
+                        status = "Concluído"
+                        detail = Downloads.dateText(date)
+                    } else {
+                        failed = true
+                        if (o.optBoolean("failed")) {
+                            status = o.optString("status")
+                            detail = o.optString("detail")
+                        } else {
+                            status = "Interrompido: o app foi fechado antes de terminar"
+                            detail = ""
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -37,7 +53,7 @@ object Store {
     fun save(ctx: Context, items: List<DownloadItem>) {
         try {
             val arr = JSONArray()
-            items.filter { it.done }.take(300).forEach {
+            items.take(300).forEach {
                 arr.put(JSONObject().apply {
                     put("id", it.id)
                     put("url", it.url)
@@ -47,9 +63,17 @@ object Store {
                     put("fileUri", it.fileUri ?: JSONObject.NULL)
                     put("mime", it.mime ?: JSONObject.NULL)
                     put("date", it.date)
+                    put("done", it.done)
+                    put("failed", it.failed)
+                    put("status", it.status)
+                    put("detail", it.detail)
+                    put("sel", it.selection?.toJson() ?: JSONObject.NULL)
                 })
             }
-            file(ctx).writeText(arr.toString())
+            val f = file(ctx)
+            val tmp = File(f.parentFile, f.name + ".tmp")
+            tmp.writeText(arr.toString())
+            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
         } catch (e: Exception) {
             // sem permissão ou disco cheio: ignora, o histórico é opcional
         }

@@ -26,8 +26,14 @@ class DownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // botão "Cancelar" da notificação
+        if (intent?.action == ACTION_CANCEL) {
+            Downloads.cancelActive()
+            if (job == null) stopSelf()
+            return START_NOT_STICKY
+        }
         createChannel()
-        val first = build("Preparando o download...", 0, true)
+        val first = build("Preparando o download...", 0, true, 1)
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, first, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -50,7 +56,7 @@ class DownloadService : Service() {
                     idle = 0
                     val pct = (act.map { it.percent }.average() * 100).toInt()
                     val text = if (act.size == 1) act[0].title else "${act.size} downloads em andamento"
-                    notify(build(text, pct, pct <= 0))
+                    notify(build(text, pct, pct <= 0, act.size))
                 }
                 delay(1000)
             }
@@ -81,10 +87,15 @@ class DownloadService : Service() {
         }
     }
 
-    private fun build(text: String, pct: Int, indeterminate: Boolean): Notification {
+    private fun build(text: String, pct: Int, indeterminate: Boolean, count: Int): Notification {
         val open = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val cancel = PendingIntent.getService(
+            this, 1,
+            Intent(this, DownloadService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(this, CHANNEL)
@@ -95,6 +106,7 @@ class DownloadService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
+            .addAction(0, if (count > 1) "Cancelar todos" else "Cancelar", cancel)
             .build()
     }
 
@@ -105,5 +117,6 @@ class DownloadService : Service() {
     companion object {
         const val CHANNEL = "downloads"
         const val NOTIF_ID = 1
+        const val ACTION_CANCEL = "br.baixador.app.CANCELAR"
     }
 }

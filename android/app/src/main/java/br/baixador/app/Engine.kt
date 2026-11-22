@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 object Engine {
@@ -159,6 +161,44 @@ object Engine {
         else File(dir, "info.json").apply { writeText(MusicTags.enrich(raw), Charsets.UTF_8) }
     } catch (_: Exception) {
         null
+    }
+
+    // ---------- miniaturas guardadas no app (as do Instagram/TikTok expiram) ----------
+    private fun thumbsDir(ctx: Context) = File(ctx.filesDir, "miniaturas").apply { mkdirs() }
+
+    /** Baixa a miniatura para dentro do app; devolve "file://..." ou null se não deu. */
+    fun cacheThumb(ctx: Context, url: String, id: String): String? {
+        return try {
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.connectTimeout = 15000
+            c.readTimeout = 20000
+            c.instanceFollowRedirects = true
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) Baixador")
+            try {
+                if (c.responseCode !in 200..299) return null
+                val dir = thumbsDir(ctx)
+                val tmp = File(dir, "$id.tmp")
+                c.inputStream.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
+                if (tmp.length() == 0L) { tmp.delete(); return null }
+                val f = File(dir, id)
+                f.delete()
+                if (!tmp.renameTo(f)) return null
+                "file://" + f.absolutePath
+            } finally {
+                c.disconnect()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun deleteThumb(ctx: Context, id: String) {
+        runCatching { File(thumbsDir(ctx), id).delete() }
+    }
+
+    /** Apaga miniaturas de itens que já saíram da lista. */
+    fun cleanThumbs(ctx: Context, keep: Set<String>) {
+        runCatching { thumbsDir(ctx).listFiles()?.forEach { if (it.name !in keep) it.delete() } }
     }
 
     private fun saveToDownloads(ctx: Context, file: File): Pair<String?, String> {
