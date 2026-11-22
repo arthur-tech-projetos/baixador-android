@@ -71,6 +71,37 @@ object Engine {
         )
     }
 
+    /** Lê a lista de vídeos de uma playlist (rápido: --flat-playlist, até 300 vídeos). */
+    suspend fun playlist(url: String): PlaylistInfo = withContext(Dispatchers.IO) {
+        val req = YoutubeDLRequest(url)
+        req.addOption("--flat-playlist")
+        req.addOption("--no-warnings")
+        req.addOption("--playlist-end", "300")
+        req.addOption("-J")
+        val r = JSONObject(YoutubeDL.execute(req, null, null).out.trim())
+        val entries = ArrayList<PlaylistEntry>()
+        val es = r.optJSONArray("entries")
+        if (es != null) {
+            for (i in 0 until es.length()) {
+                val en = es.optJSONObject(i) ?: continue
+                val id = en.str("id")
+                var eu = en.str("url") ?: en.str("webpage_url")
+                if (eu == null || !eu.startsWith("http")) eu = id?.let { "https://www.youtube.com/watch?v=$it" }
+                if (eu == null) continue
+                val title = en.str("title") ?: eu
+                val dur = en.optDouble("duration", 0.0)
+                val thumb =
+                    if (eu.contains("youtube.com/watch") && id != null) "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+                    else en.optJSONArray("thumbnails")?.optJSONObject(0)?.str("url")
+                val unavailable = title.startsWith("[Private") || title.startsWith("[Deleted")
+                entries.add(PlaylistEntry(i + 1, eu, title, if (dur > 0) clock(dur) else null, thumb, !unavailable))
+            }
+        }
+        PlaylistInfo(r.str("title") ?: "Playlist", entries)
+    }
+
+    private fun JSONObject.str(k: String): String? = if (isNull(k)) null else optString(k).ifBlank { null }
+
     /**
      * Baixa e converte numa pasta temporária e depois salva em Downloads/Baixador.
      * Devolve (endereço do arquivo, tipo MIME).
@@ -107,7 +138,7 @@ object Engine {
             ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.endsWith(".json") }
             ?.maxByOrNull { it.length() }
             ?: throw IllegalStateException("Nenhum arquivo foi gerado.")
-        val saved = saveToDownloads(ctx, out)
+        val saved = saveToDownloads(ctx, out, item.folder)
         tmp.deleteRecursively()
         saved
     }
@@ -201,14 +232,15 @@ object Engine {
         runCatching { thumbsDir(ctx).listFiles()?.forEach { if (it.name !in keep) it.delete() } }
     }
 
-    private fun saveToDownloads(ctx: Context, file: File): Pair<String?, String> {
+    private fun saveToDownloads(ctx: Context, file: File, folder: String?): Pair<String?, String> {
+        val sub = "Baixador" + (folder?.let { "/$it" } ?: "")
         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase(Locale.ROOT))
             ?: "application/octet-stream"
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, file.name)
                 put(MediaStore.Downloads.MIME_TYPE, mime)
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Baixador")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + sub)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val resolver = ctx.contentResolver
@@ -220,7 +252,7 @@ object Engine {
             resolver.update(uri, values, null, null)
             return Pair(uri.toString(), mime)
         } else {
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Baixador")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), sub)
             dir.mkdirs()
             var dest = File(dir, file.name)
             var n = 1

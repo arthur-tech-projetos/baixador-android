@@ -73,6 +73,26 @@ object Notifier {
         )
     }
 
+    /** Resumo no fim de uma playlist (ou de "Tentar todos de novo"): um aviso só, não um por vídeo. */
+    fun batch(ctx: Context, title: String?, ok: Int, total: Int) = safe {
+        channel(ctx)
+        val n = 2_000_000 + ((title ?: "lote").hashCode() and 0x7fff)
+        val head = if (title != null) "Playlist concluída" else "Downloads concluídos"
+        val text = "$ok de $total baixados" + (if (ok < total) " · ${total - ok} com erro" else "")
+        val body = if (title != null) "$title\n$text" else text
+        nm(ctx).notify(
+            n,
+            NotificationCompat.Builder(ctx, CHANNEL)
+                .setSmallIcon(if (ok < total) android.R.drawable.stat_notify_error else android.R.drawable.stat_sys_download_done)
+                .setContentTitle(head)
+                .setContentText(if (title != null) "$title: $text" else text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(openApp(ctx, n))
+                .build(),
+        )
+    }
+
     fun cancel(ctx: Context, item: DownloadItem) = safe { nm(ctx).cancel(id(item)) }
 
     // sem permissão de notificação (Android 13+) o sistema só ignora; o try é por garantia

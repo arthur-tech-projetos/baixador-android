@@ -28,6 +28,7 @@ object Store {
                     mime = if (o.isNull("mime")) null else o.optString("mime")
                     date = o.optLong("date")
                     selection = Selection.fromJson(o.optJSONObject("sel"))
+                    folder = if (o.isNull("folder")) null else o.optString("folder").ifBlank { null }
                     if (o.optBoolean("done", true)) {   // históricos antigos só tinham concluídos
                         percent = 1f
                         done = true
@@ -53,7 +54,7 @@ object Store {
     fun save(ctx: Context, items: List<DownloadItem>) {
         try {
             val arr = JSONArray()
-            items.take(300).forEach {
+            items.filter { !it.temp }.take(1000).forEach {
                 arr.put(JSONObject().apply {
                     put("id", it.id)
                     put("url", it.url)
@@ -68,6 +69,7 @@ object Store {
                     put("status", it.status)
                     put("detail", it.detail)
                     put("sel", it.selection?.toJson() ?: JSONObject.NULL)
+                    put("folder", it.folder ?: JSONObject.NULL)
                 })
             }
             val f = file(ctx)

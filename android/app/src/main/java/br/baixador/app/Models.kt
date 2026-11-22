@@ -49,6 +49,17 @@ data class Selection(val isVideo: Boolean, val format: String, val video: VideoO
     }
 }
 
+data class PlaylistEntry(
+    val index: Int,
+    val url: String,
+    val title: String,
+    val duration: String?,
+    val thumbnail: String?,
+    val available: Boolean,   // false = vídeo privado/apagado (vem desmarcado)
+)
+
+data class PlaylistInfo(val title: String, val entries: List<PlaylistEntry>)
+
 /** Um cartão da lista. Os campos são "estado" do Compose: mudar um campo atualiza a tela. */
 class DownloadItem(val id: String, val url: String) {
     var title by mutableStateOf(url)
@@ -64,4 +75,7 @@ class DownloadItem(val id: String, val url: String) {
     var date by mutableStateOf(0L)
     var active by mutableStateOf(false)   // true enquanto baixa (mantém o serviço em segundo plano)
     var selection: Selection? = null      // formato escolhido (para "Tentar de novo")
+    var queued by mutableStateOf(false)   // esperando a vez na fila da playlist
+    var folder: String? = null            // subpasta em Downloads/Baixador (nome da playlist)
+    var temp = false                      // cartão provisório ("Lendo a playlist..."), não vai pro histórico
 }

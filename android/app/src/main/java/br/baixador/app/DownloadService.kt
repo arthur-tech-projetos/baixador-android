@@ -46,7 +46,8 @@ class DownloadService : Service() {
             var idle = 0
             while (isActive) {
                 val act = Downloads.items.filter { it.active }
-                if (act.isEmpty()) {
+                val waiting = Downloads.items.count { it.queued }   // resto da fila da playlist
+                if (act.isEmpty() && waiting == 0) {
                     idle++
                     if (idle >= 3) {
                         stopSelf()
@@ -54,9 +55,14 @@ class DownloadService : Service() {
                     }
                 } else {
                     idle = 0
-                    val pct = (act.map { it.percent }.average() * 100).toInt()
-                    val text = if (act.size == 1) act[0].title else "${act.size} downloads em andamento"
-                    notify(build(text, pct, pct <= 0, act.size))
+                    val pct = if (act.isEmpty()) 0 else (act.map { it.percent }.average() * 100).toInt()
+                    val base = when (act.size) {
+                        0 -> "Preparando o próximo..."
+                        1 -> act[0].title
+                        else -> "${act.size} downloads em andamento"
+                    }
+                    val text = if (waiting > 0) "$base (+$waiting na fila)" else base
+                    notify(build(text, pct, pct <= 0, act.size + waiting))
                 }
                 delay(1000)
             }

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -50,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -185,6 +187,14 @@ fun Root() {
         Spacer(Modifier.height(12.dp))
 
         val shown = Downloads.items.filter { it.done == (tab == 1) }
+        val failedCount = if (tab == 0) shown.count { it.failed } else 0
+        if (failedCount >= 2) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { Downloads.retryAll() }) {
+                    Text("Tentar todos de novo ($failedCount)", color = Acc, fontSize = 13.sp)
+                }
+            }
+        }
         if (shown.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 Text(
@@ -199,10 +209,17 @@ fun Root() {
         }
     }
 
-    Downloads.choice?.let { c ->
-        // key: cada link da fila abre a janela "zerada" (com a última escolha marcada)
-        key(c.item.id) {
-            FormatDialog(c, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
+    // uma janela por vez; key: cada uma da fila abre "zerada"
+    val ask = Downloads.ask
+    val pick = Downloads.pick
+    val choice = Downloads.choice
+    when {
+        ask != null -> key(ask.id) { PlaylistAskDialog { Downloads.answerAsk(it) } }
+        pick != null -> key(pick.id) {
+            PlaylistDialog(pick.info, onConfirm = { Downloads.confirmPick(it) }, onDismiss = { Downloads.dismissPick() })
+        }
+        choice != null -> key(choice.id) {
+            FormatDialog(choice, onConfirm = { Downloads.choose(it) }, onDismiss = { Downloads.dismissChoice() })
         }
     }
 
@@ -307,7 +324,7 @@ private fun ItemCard(item: DownloadItem) {
                 }
             }
         }
-        if (!item.done && !item.failed) {
+        if (!item.done && !item.failed && !item.queued) {
             Spacer(Modifier.height(10.dp))
             val bar = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
             if (item.percent <= 0f) {
@@ -342,6 +359,112 @@ private fun openFile(ctx: Context, item: DownloadItem) {
         ctx.startActivity(i)
     } catch (e: ActivityNotFoundException) {
         Toast.makeText(ctx, "Nenhum app para abrir este arquivo.", Toast.LENGTH_SHORT).show()
+    }
+}
+
+// ---------- playlist ----------
+@Composable
+private fun PlaylistAskDialog(onAnswer: (Boolean?) -> Unit) {
+    Dialog(onDismissRequest = { onAnswer(null) }) {
+        Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
+            Column(Modifier.padding(20.dp)) {
+                Text("Vídeo de uma playlist", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Ink)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Este link é de um vídeo que está dentro de uma playlist. O que você quer baixar?",
+                    fontSize = 14.sp, color = Ink,
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = { onAnswer(true) }, modifier = Modifier.fillMaxWidth(), shape = R8,
+                    colors = ButtonDefaults.buttonColors(containerColor = Acc),
+                ) { Text("A playlist inteira", color = Color.White) }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onAnswer(false) }, modifier = Modifier.fillMaxWidth(), shape = R8,
+                    border = BorderStroke(1.dp, Line),
+                ) { Text("Só este vídeo", color = Ink) }
+                TextButton(onClick = { onAnswer(null) }, modifier = Modifier.align(Alignment.End)) {
+                    Text("Cancelar", color = Mute)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistDialog(info: PlaylistInfo, onConfirm: (List<PlaylistEntry>) -> Unit, onDismiss: () -> Unit) {
+    // privados/apagados já vêm desmarcados
+    val sel = remember { mutableStateListOf<Boolean>().apply { addAll(info.entries.map { it.available }) } }
+    val count = sel.count { it }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
+            Column(Modifier.padding(20.dp)) {
+                Text(
+                    info.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Ink,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${info.entries.size} vídeos" + (if (info.entries.size >= 300) " (mostrando os 300 primeiros)" else ""),
+                    fontSize = 12.sp, color = Mute,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { for (i in sel.indices) sel[i] = true }, shape = R8,
+                        border = BorderStroke(1.dp, Line), contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) { Text("Selecionar todos", color = Ink, fontSize = 13.sp) }
+                    OutlinedButton(
+                        onClick = { for (i in sel.indices) sel[i] = false }, shape = R8,
+                        border = BorderStroke(1.dp, Line), contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) { Text("Limpar", color = Ink, fontSize = 13.sp) }
+                }
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                    itemsIndexed(info.entries) { i, en ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(R8).clickable { sel[i] = !sel[i] }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = sel[i], onCheckedChange = { sel[i] = it },
+                                colors = CheckboxDefaults.colors(checkedColor = Acc, uncheckedColor = Mute),
+                            )
+                            Box(Modifier.size(width = 64.dp, height = 36.dp).clip(RoundedCornerShape(6.dp)).background(Track)) {
+                                if (en.thumbnail != null) {
+                                    AsyncImage(
+                                        model = en.thumbnail, contentDescription = null,
+                                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    en.title, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                    color = if (en.available) Ink else Mute,
+                                )
+                                en.duration?.let { Text(it, fontSize = 11.sp, color = Mute) }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("$count selecionados", fontSize = 13.sp, color = Mute)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    OutlinedButton(onClick = onDismiss, shape = R8, border = BorderStroke(1.dp, Line)) {
+                        Text("Cancelar", color = Ink)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { onConfirm(info.entries.filterIndexed { i, _ -> sel[i] }) },
+                        enabled = count > 0, shape = R8,
+                        colors = ButtonDefaults.buttonColors(containerColor = Acc),
+                    ) { Text("Continuar", color = Color.White) }
+                }
+            }
+        }
     }
 }
 
